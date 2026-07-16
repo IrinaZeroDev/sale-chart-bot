@@ -11,6 +11,7 @@ from bot import crm_stub, stats
 from bot.config import settings
 from bot.gigachat_client import get_gigachat_client
 from bot.handlers import build_router
+from bot.rate_limit import RateLimitMiddleware
 
 logging.basicConfig(
     level=logging.INFO,
@@ -40,6 +41,11 @@ async def main() -> None:
     client = get_gigachat_client()
     bot = Bot(token=settings.telegram_bot_token)
     dispatcher = Dispatcher()
+
+    rate_limiter = RateLimitMiddleware(min_interval_seconds=settings.rate_limit_seconds)
+    dispatcher.message.middleware(rate_limiter)
+    dispatcher.callback_query.middleware(rate_limiter)
+
     dispatcher.include_router(build_router(client))
 
     try:

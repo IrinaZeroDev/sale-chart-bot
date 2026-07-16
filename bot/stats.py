@@ -15,6 +15,7 @@ def _connect() -> sqlite3.Connection:
 
 
 def init_db() -> None:
+    """Создаёт таблицу interactions, если она ещё не существует. Идемпотентно."""
     with _connect() as conn:
         conn.execute(
             """
@@ -40,7 +41,10 @@ def record_interaction(
     response_time_ms: Optional[int] = None,
     rating: Optional[str] = None,
 ) -> None:
-    """answered_by: 'kb_llm' | 'manager' | 'offtopic' | 'smalltalk'."""
+    """Логирует одно взаимодействие.
+
+    answered_by: 'kb_llm' | 'manager' | 'offtopic' | 'lead_qualified' | 'product_pitch'.
+    """
     init_db()
     with _connect() as conn:
         conn.execute(
@@ -75,6 +79,7 @@ def record_rating(chat_id: str, rating: str) -> None:
 
 
 def get_all_interactions() -> list[dict]:
+    """Возвращает всю статистику взаимодействий (для консольного теста и отладки)."""
     init_db()
     with _connect() as conn:
         conn.row_factory = sqlite3.Row

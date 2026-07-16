@@ -8,73 +8,70 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Optional
+from typing import List, Optional
 
 from bot import crm_stub, stats
 from bot.config import settings
 from bot.gigachat_client import BaseGigaChatClient, GigaChatError, GigaChatUnavailableError
-from bot.knowledge_base import GREETING_TEXT, KNOWLEDGE_BASE, find_topic, get_answer
-from bot.models import DialogSession, DialogState, Lead, LeadStatus, Topic
+from bot.knowledge_base import GREETING_TEXT, KNOWLEDGE_BASE, PRODUCT_PITCH, find_topic, get_answer
+from bot.messages import (
+    ASK_COMMENT,
+    ASK_CONTACT,
+    ASK_NAME,
+    CLOSE_KEYWORDS,
+    CLOSED_MESSAGE,
+    CLOSING_MESSAGE,
+    COMMENT_TOO_LONG_RETRY,
+    CONSENT_DECLINED,
+    CONSENT_PROMPT_SUFFIX,
+    CONSENT_UNCLEAR,
+    CONTACT_EMPTY_RETRY,
+    CONTACT_TOO_LONG_RETRY,
+    FALLBACK_MESSAGE,
+    GREETING_KEYWORDS,
+    GREETING_SMALLTALK_REPLY,
+    LEAD_SUBMITTED_MESSAGE,
+    MANAGER_REQUEST_KEYWORDS,
+    NAME_EMPTY_RETRY,
+    NAME_TOO_LONG_RETRY,
+    NEGATIVE_WORDS,
+    OFF_TOPIC_MESSAGE,
+    POSITIVE_WORDS,
+    RATING_NEGATIVE_WORDS,
+    RATING_POSITIVE_WORDS,
+    RATING_THANKS_PREFIX,
+    SCOPE_KEYWORDS,
+    SKIP_WORDS,
+    STEP_IN_PROGRESS_RETRY,
+    SYSTEM_PROMPT_TEMPLATE,
+    THANKS_KEYWORDS,
+    THANKS_REPLY,
+)
+from bot.models import (
+    MAX_COMMENT_LENGTH,
+    MAX_CONTACT_LENGTH,
+    MAX_NAME_LENGTH,
+    DialogSession,
+    DialogState,
+    Lead,
+    LeadStatus,
+    Topic,
+)
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT_TEMPLATE = (
-    "Ты — бот отдела продаж B2B SaaS-компании. Отвечай кратко, по-деловому, "
-    "без панибратства, для аудитории, знакомой с техническими терминами "
-    "(API, интеграции).\n\n"
-    "ПРАВИЛА:\n"
-    "- Отвечай ТОЛЬКО на основе блока КОНТЕКСТ ниже. Не придумывай цены, "
-    "сроки, гарантии и факты, которых нет в контексте.\n"
-    "- Если контекста недостаточно для ответа — прямо скажи об этом, не "
-    "гадай.\n"
-    "- Не обсуждай темы, не связанные с продуктом и продажами.\n\n"
-    "КОНТЕКСТ:\n{context}"
-)
-
-FALLBACK_MESSAGE = (
-    "Здесь у меня пока нет точных данных, а гадать не хочу, чтобы не ввести "
-    "вас в заблуждение — передам вопрос менеджеру, он свяжется с вами "
-    f"{settings.manager_sla_text}."
-)
-
-OFF_TOPIC_MESSAGE = (
-    "Эту тему, к сожалению, не подскажу — помогаю с вопросами о продукте и "
-    "подписке. Может, расскажу про тарифы, интеграции или условия?"
-)
-
-CLOSING_MESSAGE = (
-    "Спасибо, что заглянули! Оцените, пожалуйста, как всё прошло: 👍 или 👎."
-)
-
-CLOSED_MESSAGE = (
-    "На этом всё! Если появятся вопросы — просто напишите /start, и продолжим."
-)
-
-GREETING_KEYWORDS = ["привет", "здравствуй", "добрый день", "доброе утро", "добрый вечер"]
-THANKS_KEYWORDS = ["спасибо", "благодар"]
-CLOSE_KEYWORDS = ["пока", "до свидан", "заверши", "законч", "хватит", "стоп"]
-MANAGER_REQUEST_KEYWORDS = ["связат", "менеджер", "перезвон", "созвон"]
-SCOPE_KEYWORDS = [
-    "продукт", "сервис", "компани", "функци", "систем", "купить", "подключ",
-    "стоимост", "оплат", "техподдержк", "помощ", "менеджер", "заказ", "услуг",
-    "api", "crm", "тариф", "подписк", "демо", "интеграц", "счет", "счёт",
-    "договор", "безопасн", "данн", "конфиденциальн", "отчет", "отчёт",
-    "аналитик", "воронк", "лид", "клиент", "пользовател", "цена", "цены",
-]
-NEGATIVE_WORDS = ["нет", "не над", "не хочу", "не буду"]
-POSITIVE_WORDS = ["да", "хорошо", "давай", "конечно", "ок", "окей", "согласен", "согласна"]
-SKIP_WORDS = ["нет", "пропустить", "не буду", "без комментария", "-"]
-
 
 def _normalize(text: str) -> str:
+    """Приводит пользовательский ввод к нижнему регистру без пробелов по краям."""
     return text.strip().lower()
 
 
-def _contains_any(text: str, keywords: list[str]) -> bool:
+def _contains_any(text: str, keywords: List[str]) -> bool:
     return any(kw in text for kw in keywords)
 
 
 def _parse_yes_no(text: str) -> Optional[bool]:
+    """Грубый разбор ответа да/нет. Возвращает None, если ответ неоднозначен."""
     normalized = _normalize(text)
     if _contains_any(normalized, NEGATIVE_WORDS):
         return False
@@ -84,15 +81,17 @@ def _parse_yes_no(text: str) -> Optional[bool]:
 
 
 def _parse_rating(text: str) -> Optional[str]:
+    """Разбор оценки в конце диалога: 'up' / 'down' / None (не распознано)."""
     normalized = _normalize(text)
-    if "👍" in text or _contains_any(normalized, ["хорош", "понрав", "отлично", "супер"]):
+    if "👍" in text or _contains_any(normalized, RATING_POSITIVE_WORDS):
         return "up"
-    if "👎" in text or _contains_any(normalized, ["плохо", "не понрав", "ужасно"]):
+    if "👎" in text or _contains_any(normalized, RATING_NEGATIVE_WORDS):
         return "down"
     return None
 
 
 def start_dialog(session: DialogSession) -> str:
+    """Переводит сессию в рабочее состояние и возвращает приветствие."""
     session.state = DialogState.CHATTING
     return GREETING_TEXT
 
@@ -102,6 +101,12 @@ async def handle_message(
     client: BaseGigaChatClient,
     user_text: str,
 ) -> str:
+    """Главная точка входа движка диалога — обрабатывает одно сообщение клиента.
+
+    Транспорт (Telegram-обработчик, консольный тест) вызывает эту функцию на
+    каждое входящее сообщение и просто отправляет пользователю возвращённый
+    текст; вся логика состояний, сбора лида и статистики — здесь.
+    """
     if session.state == DialogState.GREETING:
         start_dialog(session)
 
@@ -114,7 +119,7 @@ async def handle_message(
         rating = _parse_rating(user_text)
         stats.record_rating(session.chat_id, rating or "неопределено")
         session.state = DialogState.CLOSED
-        return "Спасибо за обратную связь! " + CLOSED_MESSAGE
+        return RATING_THANKS_PREFIX + CLOSED_MESSAGE
 
     if _contains_any(normalized, CLOSE_KEYWORDS) or normalized in ("/end",):
         session.state = DialogState.AWAITING_RATING
@@ -124,16 +129,28 @@ async def handle_message(
         return _handle_consent_answer(session, user_text)
 
     if session.state == DialogState.COLLECTING_NAME:
-        session.lead_name = user_text.strip()
+        name = user_text.strip()
+        if not name:
+            return NAME_EMPTY_RETRY
+        if len(name) > MAX_NAME_LENGTH:
+            return NAME_TOO_LONG_RETRY
+        session.lead_name = name
         session.state = DialogState.COLLECTING_CONTACT
-        return "Спасибо! Укажите, пожалуйста, телефон или e-mail для связи."
+        return ASK_CONTACT
 
     if session.state == DialogState.COLLECTING_CONTACT:
-        session.lead_contact = user_text.strip()
+        contact = user_text.strip()
+        if not contact:
+            return CONTACT_EMPTY_RETRY
+        if len(contact) > MAX_CONTACT_LENGTH:
+            return CONTACT_TOO_LONG_RETRY
+        session.lead_contact = contact
         session.state = DialogState.COLLECTING_COMMENT
-        return "Отлично, спасибо! И коротко — что вас интересует? (или напишите «нет», чтобы пропустить)"
+        return ASK_COMMENT
 
     if session.state == DialogState.COLLECTING_COMMENT:
+        if len(user_text.strip()) > MAX_COMMENT_LENGTH:
+            return COMMENT_TOO_LONG_RETRY
         return await _finalize_lead(session, user_text)
 
     # Обычный вопрос в состоянии CHATTING
@@ -146,12 +163,12 @@ def _handle_consent_answer(session: DialogSession, user_text: str) -> str:
     if answer is True:
         session.consent_given = True
         session.state = DialogState.COLLECTING_NAME
-        return "Отлично! Как я могу к вам обращаться?"
+        return ASK_NAME
     if answer is False:
         session.consent_given = False
         session.state = DialogState.CHATTING
-        return "Хорошо, контакт передавать не буду — просто спрашивайте, если будут ещё вопросы!"
-    return "Уточните, пожалуйста: да или нет — передать ваш контакт менеджеру?"
+        return CONSENT_DECLINED
+    return CONSENT_UNCLEAR
 
 
 async def _finalize_lead(session: DialogSession, comment_text: str) -> str:
@@ -178,10 +195,7 @@ async def _finalize_lead(session: DialogSession, comment_text: str) -> str:
     session.lead_contact = None
     session.lead_comment = None
 
-    return (
-        "Готово! Заявка передана менеджеру — он свяжется с вами "
-        f"{settings.manager_sla_text}. Если будут ещё вопросы, с радостью отвечу!"
-    )
+    return LEAD_SUBMITTED_MESSAGE
 
 
 async def _handle_question(
@@ -192,10 +206,10 @@ async def _handle_question(
     normalized = _normalize(user_text)
 
     if _contains_any(normalized, GREETING_KEYWORDS) and len(normalized) < 40:
-        return "Здравствуйте! Чем могу помочь — тарифы, подписка, интеграции?"
+        return GREETING_SMALLTALK_REPLY
 
     if _contains_any(normalized, THANKS_KEYWORDS) and len(normalized) < 40:
-        return "Пожалуйста! Могу ещё чем-то помочь?"
+        return THANKS_REPLY
 
     # Классификация по базе знаний — приоритетнее эвристики "просит менеджера",
     # иначе вопросы вроде "как связаться с поддержкой" (тема SUPPORT) будут
@@ -205,9 +219,7 @@ async def _handle_question(
 
     if topic is None:
         if _contains_any(normalized, MANAGER_REQUEST_KEYWORDS):
-            session.consent_given = True
-            session.state = DialogState.COLLECTING_NAME
-            return "Хорошо! Как я могу к вам обращаться?"
+            return start_lead_collection(session)
 
         if _contains_any(normalized, SCOPE_KEYWORDS) or "?" in user_text:
             reply = await _escalate_to_manager(session, user_text, topic=None)
@@ -275,7 +287,7 @@ async def handle_faq_selection(
     if session.state == DialogState.GREETING:
         start_dialog(session)
     if session.state != DialogState.CHATTING:
-        return "Давайте сначала закончим предыдущий шаг, а после — выберем тему из FAQ."
+        return STEP_IN_PROGRESS_RETRY
 
     session.user_message_count += 1
     entry = KNOWLEDGE_BASE[topic]
@@ -283,9 +295,40 @@ async def handle_faq_selection(
     return await _answer_known_topic(session, client, topic, f"[FAQ] {entry.title}", start)
 
 
+def start_lead_collection(session: DialogSession) -> str:
+    """Запускает сбор контакта в обход эвристик распознавания намерения —
+    по явному действию клиента (кнопка «Оставить заявку» или фраза вроде
+    «свяжите с менеджером»). Это уже само по себе явное согласие."""
+    if session.state == DialogState.GREETING:
+        start_dialog(session)
+    if session.state not in (DialogState.CHATTING, DialogState.AWAITING_CONSENT):
+        return STEP_IN_PROGRESS_RETRY
+
+    session.consent_given = True
+    session.state = DialogState.COLLECTING_NAME
+    return ASK_NAME
+
+
+def answer_product_pitch(session: DialogSession) -> str:
+    """Короткий рассказ о продукте по кнопке «О продукте» (не тема FAQ)."""
+    if session.state == DialogState.GREETING:
+        start_dialog(session)
+    if session.state != DialogState.CHATTING:
+        return STEP_IN_PROGRESS_RETRY
+
+    stats.record_interaction(
+        chat_id=session.chat_id,
+        topic=None,
+        question="[кнопка] О продукте",
+        answered_by="product_pitch",
+    )
+    return PRODUCT_PITCH
+
+
 async def _answer_with_context(
     client: BaseGigaChatClient, user_text: str, kb_answer: Optional[str]
 ) -> Optional[str]:
+    """Вызывает GigaChat с контекстом из базы знаний; None — сигнал эскалации."""
     system_prompt = SYSTEM_PROMPT_TEMPLATE.format(context=kb_answer or "")
     try:
         return await client.generate(system_prompt, user_text)
@@ -320,6 +363,6 @@ def _maybe_prompt_consent(session: DialogSession, reply: str, topic: Topic) -> s
 
     if session.consent_given is None and (buying_intent or threshold_reached):
         session.state = DialogState.AWAITING_CONSENT
-        return reply + "\n\nКстати, хотите, чтобы с вами связался менеджер? Могу передать ему ваш контакт."
+        return reply + CONSENT_PROMPT_SUFFIX
 
     return reply

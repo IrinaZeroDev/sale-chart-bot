@@ -33,10 +33,14 @@ class GigaChatUnavailableError(GigaChatError):
 
 
 class BaseGigaChatClient:
+    """Общий интерфейс клиента GigaChat — реальный и офлайн-mock реализуют его одинаково."""
+
     async def generate(self, system_prompt: str, user_message: str) -> str:
+        """Возвращает текст ответа модели. Бросает GigaChatError-наследников при сбое."""
         raise NotImplementedError
 
     async def aclose(self) -> None:
+        """Закрывает сетевые ресурсы клиента (no-op для mock-реализации)."""
         return None
 
 
@@ -148,6 +152,7 @@ def _extract_context(system_prompt: str) -> str:
 
 
 def get_gigachat_client() -> BaseGigaChatClient:
+    """Фабрика клиента: mock без ключа ProxyAPI, реальный — если ключ задан."""
     if settings.gigachat_mock_mode:
         return MockGigaChatClient()
     return GigaChatClient()

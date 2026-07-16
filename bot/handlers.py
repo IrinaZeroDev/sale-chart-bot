@@ -28,6 +28,9 @@ logger = logging.getLogger(__name__)
 router = Router()
 
 FAQ_BUTTON_TEXT = "📋 FAQ"
+PRICE_BUTTON_TEXT = "💰 Цены"
+ABOUT_BUTTON_TEXT = "📦 О продукте"
+LEAD_BUTTON_TEXT = "📝 Оставить заявку"
 
 # Сессии в памяти процесса — для MVP этого достаточно, при рестарте бота
 # диалоги начинаются заново (история диалогов сохраняется отдельно в stats.py).
@@ -42,7 +45,10 @@ def _get_session(chat_id: str) -> DialogSession:
 
 def _main_menu_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text=FAQ_BUTTON_TEXT)]],
+        keyboard=[
+            [KeyboardButton(text=FAQ_BUTTON_TEXT), KeyboardButton(text=PRICE_BUTTON_TEXT)],
+            [KeyboardButton(text=ABOUT_BUTTON_TEXT), KeyboardButton(text=LEAD_BUTTON_TEXT)],
+        ],
         resize_keyboard=True,
     )
 
@@ -56,6 +62,13 @@ def _faq_inline_keyboard() -> InlineKeyboardMarkup:
 
 
 def build_router(client: BaseGigaChatClient) -> Router:
+    """Регистрирует все Telegram-обработчики на общем клиенте GigaChat.
+
+    client передаётся один раз при старте (см. main.py) и переиспользуется
+    во всех хендлерах — так что нет накладных расходов на создание нового
+    HTTP-клиента на каждое сообщение.
+    """
+
     @router.message(CommandStart())
     async def on_start(message: Message) -> None:
         chat_id = str(message.chat.id)
@@ -67,6 +80,22 @@ def build_router(client: BaseGigaChatClient) -> Router:
     @router.message(F.text == FAQ_BUTTON_TEXT)
     async def on_faq_button(message: Message) -> None:
         await message.answer("Выберите тему вопроса:", reply_markup=_faq_inline_keyboard())
+
+    @router.message(F.text == PRICE_BUTTON_TEXT)
+    async def on_price_button(message: Message) -> None:
+        session = _get_session(str(message.chat.id))
+        reply = await dialog.handle_faq_selection(session, client, Topic.PRICE)
+        await message.answer(reply)
+
+    @router.message(F.text == ABOUT_BUTTON_TEXT)
+    async def on_about_button(message: Message) -> None:
+        session = _get_session(str(message.chat.id))
+        await message.answer(dialog.answer_product_pitch(session))
+
+    @router.message(F.text == LEAD_BUTTON_TEXT)
+    async def on_lead_button(message: Message) -> None:
+        session = _get_session(str(message.chat.id))
+        await message.answer(dialog.start_lead_collection(session))
 
     @router.callback_query(F.data.startswith("faq:"))
     async def on_faq_selected(callback: CallbackQuery) -> None:

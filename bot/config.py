@@ -46,6 +46,9 @@ class Settings(BaseSettings):
     # После скольких сообщений от пользователя явно предлагать связь с менеджером
     consent_prompt_after_messages: int = 4
 
+    # Антиспам: минимальный интервал между обработанными сообщениями от одного chat_id
+    rate_limit_seconds: float = 1.0
+
     @property
     def gigachat_mock_mode(self) -> bool:
         """Без ключа ProxyAPI работаем в офлайн-режиме без реальных вызовов сети."""

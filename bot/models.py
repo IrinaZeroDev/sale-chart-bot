@@ -6,7 +6,11 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+MAX_NAME_LENGTH = 200
+MAX_CONTACT_LENGTH = 200
+MAX_COMMENT_LENGTH = 2000
 
 
 class Topic(str, Enum):
@@ -34,14 +38,32 @@ class Lead(BaseModel):
     """
 
     lead_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    name: str
-    contact: str
+    name: str = Field(min_length=1, max_length=MAX_NAME_LENGTH)
+    contact: str = Field(min_length=1, max_length=MAX_CONTACT_LENGTH)
     question_topic: str
     status: LeadStatus = LeadStatus.NEW
-    comment: Optional[str] = None
+    comment: Optional[str] = Field(default=None, max_length=MAX_COMMENT_LENGTH)
     created_at: str = Field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
+
+    @field_validator("name", "contact", mode="before")
+    @classmethod
+    def _strip_and_require_nonempty(cls, value: str) -> str:
+        """Данные приходят от пользователя (граница системы) — нормализуем и
+        отклоняем пустые/пробельные значения до записи в CRM-заглушку."""
+        stripped = value.strip() if isinstance(value, str) else value
+        if not stripped:
+            raise ValueError("значение не может быть пустым")
+        return stripped
+
+    @field_validator("comment", mode="before")
+    @classmethod
+    def _strip_comment(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
 
 
 class DialogState(str, Enum):

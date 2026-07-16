@@ -28,6 +28,7 @@ def _connect() -> sqlite3.Connection:
 
 
 def init_db() -> None:
+    """Создаёт таблицу leads, если она ещё не существует. Идемпотентно."""
     with _connect() as conn:
         conn.execute(
             """
@@ -108,6 +109,7 @@ async def submit_lead(lead: Lead) -> Lead:
 
 
 def get_all_leads() -> list[dict]:
+    """Возвращает все сохранённые лиды (для консольного теста и отладки)."""
     init_db()
     with _connect() as conn:
         conn.row_factory = sqlite3.Row

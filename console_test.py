@@ -28,7 +28,7 @@ from bot import crm_stub, dialog, stats
 from bot.config import settings
 from bot.gigachat_client import get_gigachat_client
 from bot.knowledge_base import KNOWLEDGE_BASE
-from bot.models import DialogSession
+from bot.models import DialogSession, Topic
 
 FAQ_TOPICS = list(KNOWLEDGE_BASE.keys())
 
@@ -73,7 +73,10 @@ async def run_console() -> None:
     client = get_gigachat_client()
     session = DialogSession(chat_id="console-user")
     print(dialog.start_dialog(session))
-    print("(введите 'выход' — закончить сессию, 'faq' — меню тем кнопками)\n")
+    print(
+        "(команды: 'faq' — меню тем, 'цены', 'о продукте', 'заявка', "
+        "'выход' — закончить сессию)\n"
+    )
 
     faq_menu_open = False
     try:
@@ -87,6 +90,18 @@ async def run_console() -> None:
                 continue
             if user_text.lower() in ("выход", "exit", "quit"):
                 break
+
+            if user_text.lower() == "цены":
+                print(f"Бот: {await dialog.handle_faq_selection(session, client, Topic.PRICE)}\n")
+                continue
+
+            if user_text.lower() == "о продукте":
+                print(f"Бот: {dialog.answer_product_pitch(session)}\n")
+                continue
+
+            if user_text.lower() == "заявка":
+                print(f"Бот: {dialog.start_lead_collection(session)}\n")
+                continue
 
             if user_text.lower() in ("faq", "/faq"):
                 faq_menu_open = True
