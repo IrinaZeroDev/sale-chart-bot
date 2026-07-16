@@ -13,7 +13,7 @@ from typing import Optional
 from bot import crm_stub, stats
 from bot.config import settings
 from bot.gigachat_client import BaseGigaChatClient, GigaChatError, GigaChatUnavailableError
-from bot.knowledge_base import GREETING_TEXT, find_topic, get_answer
+from bot.knowledge_base import GREETING_TEXT, KNOWLEDGE_BASE, find_topic, get_answer
 from bot.models import DialogSession, DialogState, Lead, LeadStatus, Topic
 
 logger = logging.getLogger(__name__)
@@ -228,19 +228,29 @@ async def _handle_question(
         )
         return OFF_TOPIC_MESSAGE
 
+    return await _answer_known_topic(session, client, topic, user_text, start)
+
+
+async def _answer_known_topic(
+    session: DialogSession,
+    client: BaseGigaChatClient,
+    topic: Topic,
+    log_question: str,
+    start: float,
+) -> str:
     session.last_topic = topic
     kb_answer = get_answer(topic)
-    reply = await _answer_with_context(client, user_text, kb_answer)
+    reply = await _answer_with_context(client, log_question, kb_answer)
     answered_by = "kb_llm"
 
     if reply is None:
-        reply = await _escalate_to_manager(session, user_text, topic=topic)
+        reply = await _escalate_to_manager(session, log_question, topic=topic)
         answered_by = "manager"
 
     stats.record_interaction(
         chat_id=session.chat_id,
         topic=topic.value,
-        question=user_text,
+        question=log_question,
         answered_by=answered_by,
         response_time_ms=int((time.monotonic() - start) * 1000),
     )
@@ -249,6 +259,28 @@ async def _handle_question(
         reply = _maybe_prompt_consent(session, reply, topic)
 
     return reply
+
+
+async def handle_faq_selection(
+    session: DialogSession,
+    client: BaseGigaChatClient,
+    topic: Topic,
+) -> str:
+    """Ответ на выбор темы из FAQ-меню (кнопка в Telegram / пункт в консоли).
+
+    Использует тот же движок, что и обычный вопрос текстом — согласие на
+    передачу контакта и статистика собираются одинаково независимо от того,
+    выбрал ли клиент тему кнопкой или напечатал вопрос сам.
+    """
+    if session.state == DialogState.GREETING:
+        start_dialog(session)
+    if session.state != DialogState.CHATTING:
+        return "Давайте сначала закончим предыдущий шаг, а после — выберем тему из FAQ."
+
+    session.user_message_count += 1
+    entry = KNOWLEDGE_BASE[topic]
+    start = time.monotonic()
+    return await _answer_known_topic(session, client, topic, f"[FAQ] {entry.title}", start)
 
 
 async def _answer_with_context(

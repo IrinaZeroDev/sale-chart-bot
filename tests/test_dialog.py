@@ -3,7 +3,7 @@ import pytest
 from bot import dialog
 from bot.config import settings
 from bot.gigachat_client import MockGigaChatClient
-from bot.models import DialogSession, DialogState
+from bot.models import DialogSession, DialogState, Topic
 
 
 @pytest.fixture(autouse=True)
@@ -111,6 +111,28 @@ async def test_declining_consent_does_not_collect_contact(client):
     from bot import crm_stub
 
     assert crm_stub.get_all_leads() == []
+
+
+@pytest.mark.asyncio
+async def test_faq_selection_answers_from_kb(client):
+    session = _session()
+    dialog.start_dialog(session)
+    reply = await dialog.handle_faq_selection(session, client, Topic.SUPPORT)
+    assert "поддержк" in reply.lower() or "support@example.com" in reply.lower()
+    assert session.last_topic == Topic.SUPPORT
+
+
+@pytest.mark.asyncio
+async def test_faq_selection_blocked_during_lead_collection(client):
+    session = _session()
+    dialog.start_dialog(session)
+    await dialog.handle_message(session, client, "Сколько стоит подписка?")
+    await dialog.handle_message(session, client, "да")
+    assert session.state == DialogState.COLLECTING_NAME
+
+    reply = await dialog.handle_faq_selection(session, client, Topic.SUPPORT)
+    assert "шаг" in reply.lower()
+    assert session.state == DialogState.COLLECTING_NAME
 
 
 @pytest.mark.asyncio

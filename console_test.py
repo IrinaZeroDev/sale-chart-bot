@@ -27,7 +27,17 @@ if hasattr(sys.stdin, "reconfigure") and sys.stdin.encoding and sys.stdin.encodi
 from bot import crm_stub, dialog, stats
 from bot.config import settings
 from bot.gigachat_client import get_gigachat_client
+from bot.knowledge_base import KNOWLEDGE_BASE
 from bot.models import DialogSession
+
+FAQ_TOPICS = list(KNOWLEDGE_BASE.keys())
+
+
+def _faq_menu_text() -> str:
+    lines = ["Темы FAQ (введите номер):"]
+    for i, topic in enumerate(FAQ_TOPICS, start=1):
+        lines.append(f"  {i}. {KNOWLEDGE_BASE[topic].title}")
+    return "\n".join(lines)
 
 
 def _print_table(rows: list[dict], columns: list[str]) -> None:
@@ -63,8 +73,9 @@ async def run_console() -> None:
     client = get_gigachat_client()
     session = DialogSession(chat_id="console-user")
     print(dialog.start_dialog(session))
-    print("(введите 'выход', чтобы закончить консольную сессию)\n")
+    print("(введите 'выход' — закончить сессию, 'faq' — меню тем кнопками)\n")
 
+    faq_menu_open = False
     try:
         while True:
             try:
@@ -77,6 +88,21 @@ async def run_console() -> None:
             if user_text.lower() in ("выход", "exit", "quit"):
                 break
 
+            if user_text.lower() in ("faq", "/faq"):
+                faq_menu_open = True
+                print(_faq_menu_text() + "\n")
+                continue
+
+            if faq_menu_open and user_text.isdigit() and 1 <= int(user_text) <= len(FAQ_TOPICS):
+                faq_menu_open = False
+                topic = FAQ_TOPICS[int(user_text) - 1]
+                reply = await dialog.handle_faq_selection(session, client, topic)
+                print(f"Бот: {reply}\n")
+                if session.state.value == "closed":
+                    break
+                continue
+
+            faq_menu_open = False
             reply = await dialog.handle_message(session, client, user_text)
             print(f"Бот: {reply}\n")
 
