@@ -32,22 +32,22 @@ SYSTEM_PROMPT_TEMPLATE = (
 )
 
 FALLBACK_MESSAGE = (
-    "Точных данных по этому вопросу у меня нет, чтобы не давать вам неверную "
-    "информацию — передаю его менеджеру, он свяжется с вами "
+    "Здесь у меня пока нет точных данных, а гадать не хочу, чтобы не ввести "
+    "вас в заблуждение — передам вопрос менеджеру, он свяжется с вами "
     f"{settings.manager_sla_text}."
 )
 
 OFF_TOPIC_MESSAGE = (
-    "Отвечаю на вопросы о нашем продукте и подписке — по этой теме подсказать "
-    "не смогу. Что подскажать по тарифам, интеграциям или условиям подписки?"
+    "Эту тему, к сожалению, не подскажу — помогаю с вопросами о продукте и "
+    "подписке. Может, расскажу про тарифы, интеграции или условия?"
 )
 
 CLOSING_MESSAGE = (
-    "Спасибо за обращение! Оцените, пожалуйста, ответы бота: 👍 или 👎."
+    "Спасибо, что заглянули! Оцените, пожалуйста, как всё прошло: 👍 или 👎."
 )
 
 CLOSED_MESSAGE = (
-    "Диалог завершён. Если появятся вопросы — напишите /start, чтобы начать заново."
+    "На этом всё! Если появятся вопросы — просто напишите /start, и продолжим."
 )
 
 GREETING_KEYWORDS = ["привет", "здравствуй", "добрый день", "доброе утро", "добрый вечер"]
@@ -131,7 +131,7 @@ async def handle_message(
     if session.state == DialogState.COLLECTING_CONTACT:
         session.lead_contact = user_text.strip()
         session.state = DialogState.COLLECTING_COMMENT
-        return "Коротко опишите, что вас интересует (или напишите «нет», чтобы пропустить)."
+        return "Отлично, спасибо! И коротко — что вас интересует? (или напишите «нет», чтобы пропустить)"
 
     if session.state == DialogState.COLLECTING_COMMENT:
         return await _finalize_lead(session, user_text)
@@ -150,7 +150,7 @@ def _handle_consent_answer(session: DialogSession, user_text: str) -> str:
     if answer is False:
         session.consent_given = False
         session.state = DialogState.CHATTING
-        return "Хорошо, контакт передавать не буду. Чем ещё могу помочь?"
+        return "Хорошо, контакт передавать не буду — просто спрашивайте, если будут ещё вопросы!"
     return "Уточните, пожалуйста: да или нет — передать ваш контакт менеджеру?"
 
 
@@ -179,8 +179,8 @@ async def _finalize_lead(session: DialogSession, comment_text: str) -> str:
     session.lead_comment = None
 
     return (
-        "Заявка передана менеджеру, он свяжется с вами "
-        f"{settings.manager_sla_text}. Чем ещё могу помочь?"
+        "Готово! Заявка передана менеджеру — он свяжется с вами "
+        f"{settings.manager_sla_text}. Если будут ещё вопросы, с радостью отвечу!"
     )
 
 
@@ -320,6 +320,6 @@ def _maybe_prompt_consent(session: DialogSession, reply: str, topic: Topic) -> s
 
     if session.consent_given is None and (buying_intent or threshold_reached):
         session.state = DialogState.AWAITING_CONSENT
-        return reply + "\n\nХотите, чтобы менеджер связался с вами? Могу передать ему ваш контакт."
+        return reply + "\n\nКстати, хотите, чтобы с вами связался менеджер? Могу передать ему ваш контакт."
 
     return reply
