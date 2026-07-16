@@ -1,12 +1,15 @@
-"""Генерирует аватарку бота (512x512 PNG) по палитре из ревью тимлида:
-синий/бирюзовый/белый, минималистичный дружелюбный робот.
+"""Генерирует аватарку бота по палитре из ревью тимлида: синий/бирюзовый/
+белый, минималистичный дружелюбный робот.
 
 Требует Pillow (dev-инструмент, не рантайм-зависимость бота):
     pip install pillow
     python assets/generate_avatar.py
 
-Результат: assets/bot_avatar.png — загрузить вручную через @BotFather
-(/setuserpic), Bot API не позволяет боту установить себе аватар программно.
+Результат: assets/bot_avatar.png (640x360 — формат, который требует
+@BotFather для /setuserpic) и assets/bot_avatar_square.png (512x512,
+на случай если пригодится квадратный вариант где-то ещё). Bot API не
+позволяет боту установить себе аватар программно — загружать вручную
+через @BotFather → /mybots → Edit Bot → Edit Botpic → отправить как «Фото».
 """
 from __future__ import annotations
 
@@ -21,8 +24,10 @@ TURQUOISE = (45, 200, 195)
 LIGHT_BG = (234, 244, 251)
 WHITE = (255, 255, 255)
 
+BOTFATHER_SIZE = (640, 360)
 
-def generate(output_path: Path) -> None:
+
+def _draw_square() -> Image.Image:
     img = Image.new("RGB", (SIZE, SIZE), WHITE)
     draw = ImageDraw.Draw(img)
 
@@ -60,10 +65,29 @@ def generate(output_path: Path) -> None:
     for dx in (352, 386, 420):
         draw.ellipse([dx, 356, dx + 16, 372], fill=WHITE)
 
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    img.save(output_path, "PNG")
-    print(f"Сохранено: {output_path}")
+    return img
+
+
+def generate(output_dir: Path) -> None:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    square = _draw_square()
+
+    square_path = output_dir / "bot_avatar_square.png"
+    square.save(square_path, "PNG")
+    print(f"Сохранено: {square_path}")
+
+    # BotFather требует конкретно 640x360 — вписываем квадратный рисунок по
+    # высоте и центрируем на белом фоне (совпадает с фоном самого рисунка,
+    # так что шва не видно).
+    width, height = BOTFATHER_SIZE
+    scaled = square.resize((height, height), Image.LANCZOS)
+    canvas = Image.new("RGB", (width, height), WHITE)
+    canvas.paste(scaled, ((width - height) // 2, 0))
+
+    wide_path = output_dir / "bot_avatar.png"
+    canvas.save(wide_path, "PNG")
+    print(f"Сохранено: {wide_path} ({width}x{height}) — этот файл для @BotFather")
 
 
 if __name__ == "__main__":
-    generate(Path(__file__).parent / "bot_avatar.png")
+    generate(Path(__file__).parent)
